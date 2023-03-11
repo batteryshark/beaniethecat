@@ -56,18 +56,23 @@ int flh_set_memory_permission(void* target_address, unsigned int data_amount, in
     // Calculate the page-aligned starting address for the target memory region.
     void* page_aligned_address = (void*)((uintptr_t)target_address & ~(PAGE_SIZE - 1));
     
-    // Get the current protection flags for the memory region.
-    unsigned char mincore_vec = 0;
-    if (mincore(page_aligned_address, data_amount, &mincore_vec) == -1) {
-        printf("[%s:%s] Failed to Get Existing Memory Permission\n",__FILE__,__FUNCTION__);
-        return 0; // Failed to get protection flags.
-    }
+
     
     // Save the current protection flags if necessary.    
     if (old_flags != NULL) {
+        // mincore was introduced in glibc 2.19
+        #if defined(__GLIBC__) && ((__GLIBC__ > 2) || ((__GLIBC__ == 2) && (__GLIBC_MINOR__ >= 19)))
+        // Get the current protection flags for the memory region.
+        unsigned char mincore_vec = 0;
+        if (mincore(page_aligned_address, data_amount, &mincore_vec) == -1) {
+            printf("[%s:%s] Failed to Get Existing Memory Permission\n",__FILE__,__FUNCTION__);
+            return 0; // Failed to get protection flags.
+        }        
+        
         *old_flags = ((int)mincore_vec & 0x1) ? PROT_EXEC : 0;
         *old_flags |= ((int)mincore_vec & 0x2) ? PROT_WRITE : 0;
         *old_flags |= PROT_READ;        
+        #endif
         //printf("[%s:%s] Old Protect Flags: %04X\n",__FILE__,__FUNCTION__,*old_flags);
     }
     
