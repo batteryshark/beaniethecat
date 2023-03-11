@@ -1,28 +1,74 @@
-BUILD_ROOT := bin
+TARGETS_LIB = nix32_lib nix64_lib win32_lib win64_lib
+TARGETS_TEST = nix32_test nix64_test win32_test win64_test
 
-LIB_PATH_32 := -L lib/x86_32
-LIB_PATH_64 := -L lib/x86_64
+.PHONY: $(TARGETS_LIB) $(TARGETS_TEST) clean help
 
-FLH_COMPONENTS := src/flh/*.c -lcapstone -I include -I src
+help:
+	@echo "Available targets: nix32, nix64, win32, win64 -- lib or test"
+	@echo "  lib  - Build libraries for all platforms"
+	@echo "  test - Build test executables for all platforms"
+	@echo "  e.g. make nix32_lib or make win64_test"	
 
-libs: libbeanie32 libbeanie64
+# We'll define this first and add to it for Windows.
+FLH_FLAGS := -lcapstone -static-libgcc
 
-libbeanie32:
-	cc -m32 -shared -fPIC $(FLH_COMPONENTS) $(LIB_PATH_32) -o $(BUILD_ROOT)/$@.so
+ifeq ($(findstring nix32,$(MAKECMDGOALS)),nix32)
+  TARGET_PLATFORM := nix32
+  TARGET_OS := linux
+endif
 
-libbeanie64:
-	cc -shared -fPIC $(FLH_COMPONENTS) $(LIB_PATH_64) -o $(BUILD_ROOT)/$@.so
+ifeq ($(findstring nix64,$(MAKECMDGOALS)),nix64)
+  TARGET_PLATFORM := nix64
+  TARGET_OS := linux
+endif
 
-test: test_linux_x86_32 test_linux_x86_64 test_lib_linux_x86_32 test_lib_linux_x86_64
+ifeq ($(findstring win32,$(MAKECMDGOALS)),win32)
+  TARGET_PLATFORM := win32
+  TARGET_OS := windows
+  FLH_FLAGS := $(FLH_FLAGS) -lntdll 
+endif
 
-test_linux_x86_32: 
-	cc -m32 src/test/test.c $(FLH_COMPONENTS) $(LIB_PATH_32) -o $(BUILD_ROOT)/$@.elf
+ifeq ($(findstring win64,$(MAKECMDGOALS)),win64)
+  TARGET_PLATFORM := win64
+  TARGET_OS := windows
+  FLH_FLAGS := $(FLH_FLAGS) -lntdll 
+endif
 
-test_lib_linux_x86_32: libbeanie32
-	cc -m32 src/test/test_library.c -ldl -o $(BUILD_ROOT)/$@.elf
+BUILD_ROOT := ./build
+BUILD_PATH := $(BUILD_ROOT)/$(TARGET_PLATFORM)
+$(shell mkdir -p $(BUILD_PATH))
 
-test_lib_linux_x86_64: libbeanie64
-	cc src/test/test_library.c -ldl -o $(BUILD_ROOT)/$@.elf
+LIB_PATH := -L lib/$(TARGET_PLATFORM)
+FLH_SRCS := src/flh/asm.c src/flh/flh.c src/flh/platform_$(TARGET_OS).c 
+FLH_INCLUDES := -I include -I src
 
-test_linux_x86_64:
-	cc src/test/test.c  $(FLH_COMPONENTS) $(LIB_PATH_64) -o $(BUILD_ROOT)/$@.elf
+# Linux Targets
+## -- 32bit
+nix32_lib:
+	cc -m32 -shared -fPIC $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/libflh.so
+nix32_test: nix32_lib
+	cc -m32 src/test/test.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test.elf
+	cc -m32 src/test/test_library.c -ldl -o $(BUILD_PATH)/test_library.elf
+## -- 64bit
+nix64_lib:
+	cc -shared -fPIC $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/libflh.so
+nix64_test:	nix64_lib
+	cc src/test/test.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test.elf
+	cc src/test/test_library.c -ldl -o $(BUILD_PATH)/test_library.elf
+
+# Windows Targets
+## -- 32bit
+win32_lib:
+	i686-w64-mingw32-gcc -shared $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/flh.dll
+win32_test: win32_lib
+	i686-w64-mingw32-gcc src/test/test.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test.exe
+	i686-w64-mingw32-gcc src/test/test_library.c $(FLH_INCLUDES) -lntdll -o $(BUILD_PATH)/test_library.exe
+## -- 64bit
+win64_lib:
+	x86_64-w64-mingw32-gcc -shared $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/flh.dll
+win64_test: win64_lib
+	x86_64-w64-mingw32-gcc src/test/test.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test.exe
+	x86_64-w64-mingw32-gcc src/test/test_library.c $(FLH_INCLUDES) -lntdll -o $(BUILD_PATH)/test_library.exe
+
+lib: $(TARGETS_LIB)
+test: $(TARGETS_TEST)

@@ -7,16 +7,15 @@
 #include <flh/flh.h>
 #include <flh/asm.h>
 
-
 // Thanks to http://kylehalladay.com/blog/2020/11/13/Hooking-By-Example.html for the inspiration on this.
 
-void flh_sanitize_original_bytes(void* original_address,void* sanitized_code_address, unsigned int code_size){
+int flh_sanitize_original_bytes(void* original_address,void* sanitized_code_address, unsigned int code_size){
     csh cs_handle;
 
     #ifdef __x86_64__
-        if (cs_open(CS_ARCH_X86, CS_MODE_64, &cs_handle) != CS_ERR_OK) {return;}
+        if (cs_open(CS_ARCH_X86, CS_MODE_64, &cs_handle) != CS_ERR_OK) {return 0;}
     #else
-        if (cs_open(CS_ARCH_X86, CS_MODE_32, &cs_handle) != CS_ERR_OK) {return;}
+        if (cs_open(CS_ARCH_X86, CS_MODE_32, &cs_handle) != CS_ERR_OK) {return 0;}
     #endif
 
     // Enable Capstone's "DETAIL" mode
@@ -26,7 +25,7 @@ void flh_sanitize_original_bytes(void* original_address,void* sanitized_code_add
     size_t instruction_count = cs_disasm(cs_handle, sanitized_code_address, code_size, 0, 0, &instructions);
     if(instruction_count < 0){
         printf("[%s:%s] Capstone Unable to Parse Assembly\n",__FILE__,__FUNCTION__);
-        return;
+        return 0;
     }
 
     // Handle all the weirdness in a way that won't break our stuff coming back.
@@ -45,32 +44,42 @@ void flh_sanitize_original_bytes(void* original_address,void* sanitized_code_add
         if ((instructions[i].id == X86_INS_CALL || instructions[i].id == X86_INS_JMP) || 
    (instructions[i].detail && instructions[i].detail->x86.op_count > 0 &&
     (instructions[i].detail->x86.operands[0].type == X86_OP_MEM || instructions[i].detail->x86.operands[0].type == X86_OP_IMM))){
-    // Calculate the absolute address from the operand.
-    void* absolute_destination_address = (unsigned char*)original_address + instructions[i].detail->x86.operands[0].imm;
-    int32_t original_relative_offset = instructions[i].detail->x86.operands[0].imm - (instruction_offset + instructions[i].size);
-    void* post_instruction_address = (unsigned char*)sanitized_code_address + (instruction_offset + instructions[i].size);
-    int32_t new_relative_offset = (uintptr_t)absolute_destination_address - (uintptr_t)post_instruction_address;
-    
-    intptr_t offset_difference = (uintptr_t)absolute_destination_address - (uintptr_t)post_instruction_address;
-    if (offset_difference < INT32_MIN && offset_difference > INT32_MAX) {
-        printf("[%s:%s] Error: Offset Difference Exceeds 32bit Value: %zx\n",__FILE__,__FUNCTION__,offset_difference);
-        exit(-1);        
-    }
-    instructions[i].detail->x86.operands[0].imm = new_relative_offset + (instruction_offset + instructions[i].size);
-    void* test_nadr = (unsigned char*)post_instruction_address + new_relative_offset;
-    if(test_nadr != absolute_destination_address){
-        printf("MisMatch: %p %p\n",test_nadr,absolute_destination_address);
-        exit(1);
-    }
-    // Update the instruction's operand
-    //printf("[%s:%s] FIXUP: %04X => %04X Original Function: %p New Function: %p Dest: %p \n", __FILE__,__FUNCTION__,original_relative_offset, new_relative_offset, original_address,sanitized_code_address,absolute_destination_address);
-    
-    memcpy((unsigned char*)post_instruction_address - sizeof(int32_t), &new_relative_offset, sizeof(int32_t));
 
-}   
+        // FOR NOW - If it isn't a jump or call, we're gonna skip it.
+        if(instructions[i].id != X86_INS_CALL && instructions[i].id != X86_INS_JMP){
+            printf("[%s:%s] Relative Address Instruction May Require Fix at %p\n",__FILE__,__FUNCTION__,original_address);
+            instruction_offset += instructions[i].size;
+            continue;
+        }
 
+        // Calculate the absolute address from the operand.
+        void* absolute_destination_address = (unsigned char*)original_address + instructions[i].detail->x86.operands[0].imm;
+        void* post_instruction_address = (unsigned char*)sanitized_code_address + (instruction_offset + instructions[i].size);
+    
+        #ifdef __x86_64__
+        int64_t original_relative_offset = instructions[i].detail->x86.operands[0].imm - (instruction_offset + instructions[i].size);
+        int64_t new_relative_offset = (uintptr_t)absolute_destination_address - (uintptr_t)post_instruction_address;
+        #else
+        int32_t original_relative_offset = instructions[i].detail->x86.operands[0].imm - (instruction_offset + instructions[i].size);
+        int32_t new_relative_offset = (uintptr_t)absolute_destination_address - (uintptr_t)post_instruction_address;
+        #endif
+
+        intptr_t offset_difference = (uintptr_t)absolute_destination_address - (uintptr_t)post_instruction_address;
+        
+        if (offset_difference < INT32_MIN && offset_difference > INT32_MAX) {
+            printf("[%s:%s] Error: Offset Difference Exceeds 32bit Value: %zx\n",__FILE__,__FUNCTION__,offset_difference);
+            exit(-1);        
+        }
+    
+        // Update the instruction's operand
+        //printf("[%s:%s] FIXUP: %08X => %08X Original Function: %p New Function: %p Dest: %p \n", __FILE__,__FUNCTION__,original_relative_offset, new_relative_offset, original_address,sanitized_code_address,absolute_destination_address);
+        
+        memcpy((unsigned char*)post_instruction_address - sizeof(int32_t), &new_relative_offset, sizeof(int32_t));
+
+        }   
         instruction_offset += instructions[i].size;
     }
+    return instruction_offset;
 }
 
 
