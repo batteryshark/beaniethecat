@@ -42,6 +42,8 @@ static int create_64bit_absjmp(void* destination_address, unsigned char* jump_da
     unsigned char jmp64_template[] = {0x49, 0xBB, 0, 0, 0, 0, 0, 0, 0, 0, 0x41, 0xFF, 0xE3};
     memcpy(&jmp64_template[2], &destaddr, sizeof(uint64_t));
     memcpy(jump_data, jmp64_template, sizeof(jmp64_template));
+    //printf("[%s:%s] %p \n",__FILE__,__FUNCTION__,destination_address);
+
     return sizeof(jmp64_template);
 }
 #define create_absjmp create_64bit_absjmp
@@ -113,13 +115,8 @@ create_absjmp(redirect_function_address,flh_existing->top_level_hook);
 return (void*)new_trampoline_addr;
 }
 
-
-void* flh_inline_hook(const char* module_name, const char* function_name, void* redirect_function_address){
-    // Resolve our function address and die if we can't.
-    void* target_address = NULL;
-    if (!flh_get_function_address(module_name, function_name, &target_address)) { return NULL; }    
-
-    // If we already hooked this before, we have to update the hook.
+void* flh_inline_hook(void* target_address, void* redirect_function_address){
+// If we already hooked this before, we have to update the hook.
     PFLHEntry flh_existing = flh_get_pflh_entry(target_address);    
     if(flh_existing != NULL){
         return update_hook(redirect_function_address, target_address,flh_existing);
@@ -127,7 +124,10 @@ void* flh_inline_hook(const char* module_name, const char* function_name, void* 
 
     // Next - We need to attempt to allocate a page near our target.
     PFLHEntry pflh =  NULL;
-    flh_allocate_memory(target_address,PAGE_SIZE,1,(void**)&pflh);
+    if(!flh_allocate_memory(target_address,PAGE_SIZE,1,(void**)&pflh)){
+        printf("[%s:%s] Error - Failed to Allocate Virtual Memory for Hook.\n",__FILE__,__FUNCTION__);
+        return NULL;
+    }
     memset(pflh,0,sizeof(FLHEntry));
 
     // Copy our Magic - The Ramp and NOPNOPNOPNOP:3
@@ -161,20 +161,28 @@ void* flh_inline_hook(const char* module_name, const char* function_name, void* 
     memcpy(pflh->original_target_trampoline, pflh->original_target_restore_bytes, pflh->original_target_restore_bytes_length);
     
     // Clean up Our Original Bytes - Fix Offsets, Nuke CET Stuff, etc.
+    int trampoline_instruction_length = 0;
     if(pflh->original_target_restore_bytes_length){
-        flh_sanitize_original_bytes(target_address,pflh->original_target_trampoline, pflh->original_target_restore_bytes_length);
+        trampoline_instruction_length = flh_sanitize_original_bytes(target_address,pflh->original_target_trampoline, pflh->original_target_restore_bytes_length);
     }
 
     // Calculate our "Resume Address" - that is, the target address after our stolen bytes.
-    unsigned char* actual_return_address = (unsigned char*)target_address + pflh->original_target_restore_bytes_length;
+    unsigned char* actual_return_address = (unsigned char*)target_address + trampoline_instruction_length;
     
     // Create our Trampoline Jump after the stolen bytes.
-    create_absjmp(actual_return_address,pflh->original_target_trampoline + pflh->original_target_restore_bytes_length);
+    create_absjmp(actual_return_address,pflh->original_target_trampoline + trampoline_instruction_length);
 
     // Copy our HotPatch to Overwrite Our Original Function Prologue
     if (!flh_patch_memory(target_address, hotpatch, pflh->original_target_restore_bytes_length)) { return NULL; }
     
     return (void*)pflh->original_target_trampoline;
+}
+
+void* flh_inline_hook_byname(const char* module_name, const char* function_name, void* redirect_function_address){
+    // Resolve our function address and die if we can't.
+    void* target_address = NULL;
+    if (!flh_get_function_address(module_name, function_name, &target_address)) { return NULL; }    
+    return flh_inline_hook(target_address,redirect_function_address);
 }
 
 
@@ -187,4 +195,11 @@ int flh_inline_unhook(void* target_address){
         return 0;
     }    
     return flh_patch_memory(target_address, pflh->original_target_restore_bytes, pflh->original_target_restore_bytes_length);
+}
+
+int flh_inline_unhook_byname(const char* module_name, const char* function_name){
+    // Resolve our function address and die if we can't.
+    void* target_address = NULL;
+    if (!flh_get_function_address(module_name, function_name, &target_address)) { return 0; }    
+    return flh_inline_unhook(target_address);   
 }
