@@ -46,6 +46,10 @@ static int create_64bit_absjmp(void* destination_address, unsigned char* jump_da
 
     return sizeof(jmp64_template);
 }
+static void* deconstruct_absjmp(unsigned char* jump_data){
+    if(jump_data == NULL){return NULL;}
+    return *(unsigned char**)jump_data+2;
+}
 #define create_absjmp create_64bit_absjmp
 #else
 static int create_32bit_absjmp(void* destination_address, unsigned char* jump_data){
@@ -54,17 +58,26 @@ static int create_32bit_absjmp(void* destination_address, unsigned char* jump_da
     memcpy(jump_data + 1, &destaddr, sizeof(uint32_t));
     return 6;
 }
+static void* deconstruct_absjmp(unsigned char* jump_data){
+    if(jump_data == NULL){return NULL;}
+    return *(unsigned char**)jump_data+1;
+}
 #define create_absjmp create_32bit_absjmp
 #endif
 
 
 // Reads the target function prologue, determines if this is a hooked function.
 // Returns the address pointed to by the hook or NULL if not hooked.
-PFLHEntry flh_get_pflh_entry(void* target_address){
+PFLHEntry flh_get_pflh_entry(void* target_address,unsigned char is_iat_hook){
 
     unsigned char test_data[32];
     memcpy(test_data, target_address, sizeof(test_data));
+    // Test if the target is already an entry:
+    if(memcmp(test_data,FLH_MAGIC,sizeof(FLH_MAGIC)) == 0){
+        return target_address;
+    }
     void* flh_address = NULL;
+
 
     switch (test_data[0]) {
         case 0xE9: {
@@ -78,9 +91,14 @@ PFLHEntry flh_get_pflh_entry(void* target_address){
             flh_address = CAST_UINT64_TO_POINTER(absolute_value);
             break;
         }
-        default:
-            //printf("[%s:%s] Not a Hooked Function %p\n", __FILE__, __FUNCTION__, target_address);
-            return NULL;
+    }
+    if(!is_iat_hook){
+        //printf("[%s:%s] Not a FLH Hooked Function %p\n", __FILE__, __FUNCTION__, target_address);
+        return NULL;
+    }
+    // Added for IAT
+    if(flh_address == NULL){
+        flh_address = *(void**)target_address;
     }
     
     if (memcmp(FLH_MAGIC, flh_address, sizeof(FLH_MAGIC)) != 0) {
@@ -117,7 +135,7 @@ return (void*)new_trampoline_addr;
 
 void* flh_inline_hook(void* target_address, void* redirect_function_address){
 // If we already hooked this before, we have to update the hook.
-    PFLHEntry flh_existing = flh_get_pflh_entry(target_address);    
+    PFLHEntry flh_existing = flh_get_pflh_entry(target_address,0);    
     if(flh_existing != NULL){
         return update_hook(redirect_function_address, target_address,flh_existing);
     }
@@ -186,15 +204,75 @@ void* flh_inline_hook_byname(const char* module_name, const char* function_name,
 }
 
 
+void* flh_import_table_hook_byname(const char* module_name, const char* library_module_name, const char* function_name, void* redirect_function_address){
+    // Resolve our import table entry address.
+
+    void* target_address = flh_find_import_table_address(module_name,function_name);
+
+    if(target_address == NULL){
+        printf("[%s:%s] Error - Unable to Find Symbol: %s\n",__FILE__,__FUNCTION__,function_name);
+        return NULL;
+    }
+
+    // If we already hooked this before, we have to update the hook.
+    PFLHEntry flh_existing = flh_get_pflh_entry(target_address,1);    
+    if(flh_existing != NULL){
+        return update_hook(redirect_function_address, target_address,flh_existing);
+    }
+    
+    // Next - We need to attempt to allocate a page near our target.
+    PFLHEntry pflh =  NULL;
+    if(!flh_allocate_memory(target_address,PAGE_SIZE,1,(void**)&pflh)){
+        printf("[%s:%s] Error - Failed to Allocate Virtual Memory for Hook.\n",__FILE__,__FUNCTION__);
+        return NULL;
+    }
+    memset(pflh,0,sizeof(FLHEntry));
+
+    // Copy our Magic - The Ramp and NOPNOPNOPNOP:3
+    memcpy(pflh->magic,FLH_MAGIC,sizeof(FLH_MAGIC));
+
+    // Fill in the Hook Jump Code
+    create_absjmp(redirect_function_address,pflh->top_level_hook);
+
+    // Resolve the real destination address of our module->function.
+    void* real_function_address = NULL;
+    if (!flh_get_function_address(library_module_name, function_name, &real_function_address)) { return NULL; }    
+
+    // Create our Trampoline Jump after the stolen bytes.
+    create_absjmp(real_function_address,pflh->original_target_trampoline);
+
+    // Copy a backup of our original bytes that we're going to overwrite.
+    memcpy(pflh->original_target_restore_bytes,&real_function_address,sizeof(void*));
+    memcpy(&pflh->original_target_restore_bytes[8],&target_address,sizeof(void*));
+    pflh->original_target_restore_bytes_length = 0xFFFFFFFF;
+
+    // Finally, add the address to our FLHEntry as the target on our import entry.
+    //if (!flh_patch_memory(target_address,(unsigned char*)&pflh, sizeof(unsigned char*))) { return NULL; }    
+    uintptr_t *got_entry = (uintptr_t *)target_address;
+    *got_entry = (uintptr_t)pflh;
+    return (void*)pflh->original_target_trampoline;
+}
+
 // For now, we'll just restore the original bytes to remove the hook.
 // TODO Later - Remove and Relink Parts of Hooks
 int flh_inline_unhook(void* target_address){
-    PFLHEntry pflh = flh_get_pflh_entry(target_address);    
+    PFLHEntry pflh = flh_get_pflh_entry(target_address,0); 
+    // For now, we'll try both
+    if(pflh == NULL){
+        pflh = flh_get_pflh_entry(target_address,1); 
+    }   
     if(pflh == NULL){
         printf("[%s:%s] Error - Unable to Unhook Function that is not Hooked.\n",__FILE__,__FUNCTION__);
         return 0;
     }    
-    return flh_patch_memory(target_address, pflh->original_target_restore_bytes, pflh->original_target_restore_bytes_length);
+    // If the length is 0xFFFFFFFF - This was an IAT Patch and the restore bytes are static.
+    if(pflh->original_target_restore_bytes_length == 0xFFFFFFFF){
+        void* real_function_address = pflh->original_target_restore_bytes;
+        void* original_target = pflh->original_target_restore_bytes+8;
+        return flh_patch_memory(original_target,&real_function_address,sizeof(void*));
+    }else{
+        return flh_patch_memory(target_address, pflh->original_target_restore_bytes, pflh->original_target_restore_bytes_length);
+    }
 }
 
 int flh_inline_unhook_byname(const char* module_name, const char* function_name){

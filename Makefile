@@ -15,11 +15,13 @@ FLH_FLAGS := -lcapstone -static-libgcc
 ifeq ($(findstring nix32,$(MAKECMDGOALS)),nix32)
   TARGET_PLATFORM := nix32
   TARGET_OS := linux
+  FLH_FLAGS := $(FLH_FLAGS) -ldl  
 endif
 
 ifeq ($(findstring nix64,$(MAKECMDGOALS)),nix64)
   TARGET_PLATFORM := nix64
   TARGET_OS := linux
+  FLH_FLAGS := $(FLH_FLAGS) -ldl  
 endif
 
 ifeq ($(findstring win32,$(MAKECMDGOALS)),win32)
@@ -39,21 +41,23 @@ BUILD_PATH := $(BUILD_ROOT)/$(TARGET_PLATFORM)
 $(shell mkdir -p $(BUILD_PATH))
 
 LIB_PATH := -L lib/$(TARGET_PLATFORM)
-FLH_SRCS := src/flh/asm.c src/flh/flh.c src/flh/platform_$(TARGET_OS).c 
+FLH_SRCS := src/flh/asm.c src/flh/flh.c src/flh/platform_$(TARGET_OS).c
 FLH_INCLUDES := -I include -I src
 
 # Linux Targets
 ## -- 32bit
 nix32_lib:
-	cc -m32 -shared -fPIC $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/libflh.so
+	cc -m32 -shared -fPIC src/flh/plthook_elf.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/libflh.so
 nix32_test: nix32_lib
-	cc -m32 src/test/test.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test.elf
+	cc -m32 src/test/test.c src/flh/plthook_elf.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test.elf
+	cc -m32 src/test/test_iat.c src/flh/plthook_elf.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test_iat.elf	
 	cc -m32 src/test/test_library.c -ldl -o $(BUILD_PATH)/test_library.elf
 ## -- 64bit
 nix64_lib:
-	cc -shared -fPIC $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/libflh.so
+	cc -shared -fPIC src/flh/plthook_elf.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/libflh.so
 nix64_test:	nix64_lib
-	cc src/test/test.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test.elf
+	cc src/test/test.c src/flh/plthook_elf.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test.elf
+	cc src/test/test_iat.c src/flh/plthook_elf.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test_iat.elf
 	cc src/test/test_library.c -ldl -o $(BUILD_PATH)/test_library.elf
 
 # Windows Targets
