@@ -101,6 +101,8 @@ void *flh_find_import_table_address(const char *binary_image_name, const char *s
     int pos = 0;
     const char* name;    
     void* handle = dlopen(binary_image_name, RTLD_LAZY);
+    if(handle == NULL){return NULL;}
+    
     plthook_open_by_handle(&plthook, handle);
     void **addr = NULL;
      while (plthook_enum(plthook, &pos, &name, &addr) == 0) {
