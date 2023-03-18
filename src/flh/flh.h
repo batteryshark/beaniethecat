@@ -13,23 +13,25 @@
 #endif
 
 typedef struct _FLH_ENTRY{
-	uint8_t  magic[8];
-	uint32_t number_of_subhooks;
-	uint32_t original_target_restore_bytes_length;
-	uint8_t  top_level_hook[16];
-	uint8_t  original_target_trampoline[112];
-	uint8_t  original_target_restore_bytes[112];
-	uint8_t  chain_hooks[0xF00]; ///...
-}FLHEntry,*PFLHEntry;
+    uint8_t  magic[8];
+    uint32_t number_of_subhooks;
+    uint32_t original_target_restore_bytes_length;
+    uint8_t  top_level_hook[16];
+    uint8_t  original_target_trampoline[112];
+    uint8_t  original_target_restore_bytes[112];
+    uint8_t  chain_hooks[0xF00]; ///...
+} FLHEntry, *PFLHEntry;
 
 static const unsigned char FLH_MAGIC[8] = {0xEB, 0x0E, 0x90, 0x90, 0x90, 0x90, 0x3A, 0x33};
 
-void* flh_inline_hook_byname(const char* module_name, const char* function_name, void* redirect_function_address);
+// Hook Logic
 void* flh_inline_hook(void* target_address, void* redirect_function_address);
+void* flh_import_table_hook_byname(const char* module_name, const char* library_module_name, const char* function_name, void* redirect_function_address);
+void* flh_inline_hook_byname(const char* module_name, const char* function_name, void* redirect_function_address);
 
+// Unhook Logic
 int flh_inline_unhook_byname(const char* module_name, const char* function_name);
 int flh_inline_unhook(void* target_address);
 
-void* flh_get_entry(void* target_address);
-
-
+// Helpers
+PFLHEntry flh_get_pflh_entry(void* target_address, unsigned char is_iat);

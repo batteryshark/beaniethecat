@@ -7,6 +7,8 @@
 #include <string.h>
 #include <sys/mman.h>
 
+#include "plthook.h"
+
 #ifndef PAGE_SIZE
 #define PAGE_SIZE 0x1000
 #endif
@@ -92,4 +94,19 @@ int flh_patch_memory(void* target_address, void* patch_address, unsigned int pat
         if (!flh_set_memory_permission(target_address, patch_length, old_flags, NULL)) { return 0; }
     }
     return 1;
+}
+
+void *flh_find_import_table_address(const char *binary_image_name, const char *symbol_name) {
+    plthook_t* plthook;
+    int pos = 0;
+    const char* name;    
+    void* handle = dlopen(binary_image_name, RTLD_LAZY);
+    plthook_open_by_handle(&plthook, handle);
+    void **addr = NULL;
+     while (plthook_enum(plthook, &pos, &name, &addr) == 0) {
+        if(name != NULL && !strcmp(name,symbol_name)){
+            return (void*)addr;
+        }
+    }
+    return NULL;
 }
