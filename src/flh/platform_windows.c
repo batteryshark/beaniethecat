@@ -4,6 +4,8 @@
 #include <stdarg.h>
 #include <ntdll.h>
 
+#include "plthook.h"
+
 #ifndef PAGE_SIZE
 #define PAGE_SIZE 0x1000
 #endif
@@ -113,4 +115,23 @@ int flh_patch_memory(void* target_address, void* patch_address, unsigned int pat
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
 return TRUE;
+}
+
+void *flh_find_import_table_address(const char *binary_image_name, const char *symbol_name) {
+    plthook_t* plthook;
+    unsigned int pos = 0;
+    const char* name;    
+    
+    void* handle = NULL;
+    
+    if(!load_library(binary_image_name,&handle)){return NULL;}
+    
+    plthook_open_by_handle(&plthook, handle);
+    void **addr = NULL;
+     while (plthook_enum(plthook, &pos, &name, &addr) == 0) {
+        if(name != NULL && !strcmp(name,symbol_name)){
+            return (void*)addr;
+        }
+    }
+    return NULL;
 }

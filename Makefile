@@ -16,24 +16,28 @@ ifeq ($(findstring nix32,$(MAKECMDGOALS)),nix32)
   TARGET_PLATFORM := nix32
   TARGET_OS := linux
   FLH_FLAGS := $(FLH_FLAGS) -ldl  
+  PLT_SRCS := src/flh/plthook_elf.c
 endif
 
 ifeq ($(findstring nix64,$(MAKECMDGOALS)),nix64)
   TARGET_PLATFORM := nix64
   TARGET_OS := linux
-  FLH_FLAGS := $(FLH_FLAGS) -ldl  
+  FLH_FLAGS := $(FLH_FLAGS) -ldl 
+  PLT_SRCS := src/flh/plthook_elf.c   
 endif
 
 ifeq ($(findstring win32,$(MAKECMDGOALS)),win32)
   TARGET_PLATFORM := win32
   TARGET_OS := windows
-  FLH_FLAGS := $(FLH_FLAGS) -lntdll 
+  FLH_FLAGS := $(FLH_FLAGS) -lntdll -ldbghelp 
+  PLT_SRCS := src/flh/plthook_win32.c  
 endif
 
 ifeq ($(findstring win64,$(MAKECMDGOALS)),win64)
   TARGET_PLATFORM := win64
   TARGET_OS := windows
-  FLH_FLAGS := $(FLH_FLAGS) -lntdll 
+  FLH_FLAGS := $(FLH_FLAGS) -lntdll -ldbghelp 
+  PLT_SRCS := src/flh/plthook_win32.c   
 endif
 
 BUILD_ROOT := ./build
@@ -41,23 +45,23 @@ BUILD_PATH := $(BUILD_ROOT)/$(TARGET_PLATFORM)
 $(shell mkdir -p $(BUILD_PATH))
 
 LIB_PATH := -L lib/$(TARGET_PLATFORM)
-FLH_SRCS := src/flh/asm.c src/flh/flh.c src/flh/platform_$(TARGET_OS).c
+FLH_SRCS := $(PLT_SRCS) src/flh/asm.c src/flh/flh.c src/flh/platform_$(TARGET_OS).c
 FLH_INCLUDES := -I include -I src
 
 # Linux Targets
 ## -- 32bit
 nix32_lib:
-	cc -m32 -shared -fPIC src/flh/plthook_elf.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/libflh.so
+	cc -m32 -shared -fPIC $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/libflh.so
 nix32_test: nix32_lib
-	cc -m32 src/test/test.c src/flh/plthook_elf.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test.elf
-	cc -m32 src/test/test_iat.c src/flh/plthook_elf.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test_iat.elf	
+	cc -m32 src/test/test.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test.elf
+	cc -m32 src/test/test_iat.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test_iat.elf	
 	cc -m32 src/test/test_library.c -ldl -o $(BUILD_PATH)/test_library.elf
 ## -- 64bit
 nix64_lib:
-	cc -shared -fPIC src/flh/plthook_elf.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/libflh.so
+	cc -shared -fPIC $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/libflh.so
 nix64_test:	nix64_lib
-	cc src/test/test.c src/flh/plthook_elf.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test.elf
-	cc src/test/test_iat.c src/flh/plthook_elf.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test_iat.elf
+	cc src/test/test.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test.elf
+	cc src/test/test_iat.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test_iat.elf
 	cc src/test/test_library.c -ldl -o $(BUILD_PATH)/test_library.elf
 
 # Windows Targets
@@ -66,12 +70,14 @@ win32_lib:
 	i686-w64-mingw32-gcc -shared $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/flh.dll
 win32_test: win32_lib
 	i686-w64-mingw32-gcc src/test/test.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test.exe
-	i686-w64-mingw32-gcc src/test/test_library.c $(FLH_INCLUDES) -lntdll -o $(BUILD_PATH)/test_library.exe
+	i686-w64-mingw32-gcc src/test/test_iat.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test_iat.exe		
+	i686-w64-mingw32-gcc src/test/test_library.c $(FLH_INCLUDES) -lntdll  -o $(BUILD_PATH)/test_library.exe
 ## -- 64bit
 win64_lib:
 	x86_64-w64-mingw32-gcc -shared $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/flh.dll
 win64_test: win64_lib
 	x86_64-w64-mingw32-gcc src/test/test.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test.exe
+	x86_64-w64-mingw32-gcc src/test/test_iat.c $(FLH_SRCS) $(FLH_INCLUDES) $(LIB_PATH) $(FLH_FLAGS) -o $(BUILD_PATH)/test_iat.exe
 	x86_64-w64-mingw32-gcc src/test/test_library.c $(FLH_INCLUDES) -lntdll -o $(BUILD_PATH)/test_library.exe
 
 lib: $(TARGETS_LIB)
