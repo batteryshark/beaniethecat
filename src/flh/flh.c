@@ -84,12 +84,12 @@ PFLHEntry flh_get_pflh_entry(void* target_address,unsigned char is_iat_hook){
             int32_t relative_value;
             memcpy(&relative_value, test_data + 1, sizeof(relative_value));
             flh_address = (void*)((uintptr_t)target_address + relative_value + 5);
-            break;
+            return (PFLHEntry)flh_address;
         }
         case 0x49: {
             uint64_t absolute_value = *(uint64_t*)(test_data + 2);
             flh_address = CAST_UINT64_TO_POINTER(absolute_value);
-            break;
+            return (PFLHEntry)flh_address;
         }
     }
     if(!is_iat_hook){
