@@ -1,44 +1,106 @@
 # BeanieTheCat Hooking Library
-A filthy little hooker library for x86 32/64 named after the one and only Beanie.
 
-![BeanieTheCat](./src/beanie.png)
+BeanieTheCat is a small C hooking library for x86 and x86-64 processes on Linux and Windows. It supports inline function hooks, import-table hooks, chained hooks, and trampoline calls back to the original implementation.
 
+![BeanieTheCat](./assets/beanie.png)
 
-## What Works
-Linux and Windows Binaries of the x86 variety - 32 and 64bit supported.
+## Current Scope
 
-# What needs testing and makefile entries
-ARM64 Linux / MacOS
+Supported:
 
-## How Does it Work?
+- Linux x86 and x86-64 builds.
+- Windows x86 and x86-64 builds with MinGW cross compilers.
+- Inline hooks by address or module/symbol name.
+- Import-table hooks by module/symbol name.
+- Chained hooks where each hook receives a trampoline to call the previous target.
 
-Simple interface:
+Deferred:
 
-```c
-// For hooking an address or module symbol target
-void* flh_inline_hook_byname(const char* module_name, const char* function_name, void* redirect_function_address);
-void* flh_inline_hook(void* target_address, void* redirect_function_address);
+- ARM64 Linux and Windows.
+- macOS.
+- Replacing Capstone with a smaller decoder backend.
 
-// For restoring original functionality
-int flh_inline_unhook_byname(const char* module_name, const char* function_name);
-int flh_inline_unhook(void* target_address);
+ARM64 is intentionally parked for now. Capstone can support ARM64 decoding, but FLH would also need ARM64 patch encoders, trampoline relocation rules, instruction-cache handling, branch-protection consideration, and platform-specific validation.
 
-// For pulling the hook table
-void* flh_get_entry(void* target_address);
+## Repository Layout
+
+```text
+include/flh/          Public API
+src/core/             Hook lifecycle and private hook-entry layout
+src/asm/              Capstone-backed instruction decoder
+src/platform/         OS memory, symbol, and import-table adapters
+tests/                Characterization tests
+third_party/          Vendored Capstone, plthook, and ntdll.h
+assets/               Project assets
+build/                Generated outputs, ignored by git
 ```
 
-Essentially, specify a module name (or NULL for your process) and a function name along with your hook address and the hooker gets to work:
+Implementation details such as `FLHEntry`, magic bytes, cast macros, and import-table sentinels are private. The public API is limited to hook and unhook operations in `include/flh/flh.h`.
 
-1. It supports both relative and absolute inline hooks with proper auto-padding thanks to capstone.
+## Public API
 
-2. It creates a nearby page that supports multiple chained hooks seamlessly.
+```c
+void* flh_inline_hook(void* target_address, void* redirect_function_address);
+void* flh_inline_hook_byname(const char* module_name, const char* function_name, void* redirect_function_address);
+void* flh_import_table_hook_byname(const char* module_name, const char* library_module_name, const char* function_name, void* redirect_function_address);
 
-3. The hook function returns a "real_function" address you can use to call the orginal function from a supported trampoline - now with relative rebasing support!!!
+int flh_inline_unhook(void* target_address);
+int flh_inline_unhook_byname(const char* module_name, const char* function_name);
+```
 
-4. Chain multiple hooks together by calling flh_inline_hook multiple times with various functions.
+For inline hooks, the returned pointer is a trampoline that can be called to continue into the original function body. For import-table hooks, the returned pointer jumps to the original imported function.
 
-5. Supported handling to deal with CET calls (via not executing them in the trampoline, we'll see how reliable this is).
+## How It Works
 
-Unhooking is as easy as giving flh_inline_unhook the address of the function you want restored or "byname".
+Inline hooks overwrite the beginning of a target function with a jump into an allocated hook entry. The hook entry stores the original bytes, a trampoline, the top-level hook jump, and chained hook stubs.
 
+The decoder uses Capstone to choose a safe instruction-aligned overwrite size and to rewrite copied relative call/jump instructions inside the trampoline. CET `ENDBR32` and `ENDBR64` instructions are replaced with NOPs in copied trampoline bytes.
 
+Import-table hooks locate an import slot with vendored `plthook`, save the original function pointer, and patch the slot to point at an FLH hook entry. Unhooking restores the saved pointer.
+
+## Build And Test
+
+Linux x64:
+
+```sh
+make nix64_test
+./build/nix64/test.elf
+./build/nix64/test_iat.elf
+cd build/nix64 && ./test_library.elf
+```
+
+Linux x86:
+
+```sh
+make nix32_test
+./build/nix32/test.elf
+./build/nix32/test_iat.elf
+cd build/nix32 && ./test_library.elf
+```
+
+Windows cross-builds:
+
+```sh
+make win32_test
+make win64_test
+```
+
+The Windows binaries are cross-compiled; run them only in an appropriate Windows environment. On this machine, Linux x86/x64 tests and Windows x86 compilation have been verified through WSL2. Windows x64 compilation depends on an available `x86_64-w64-mingw32-gcc` toolchain.
+
+## Dependency Decisions
+
+Capstone remains the supported decoder backend. It is heavier than a pure length decoder, but FLH currently relies on operand detail for trampoline relocation and CET handling. A lighter backend such as `x86_ldasm` may be evaluated later behind the decoder boundary, after tests cover prologue sizing, CET, relative relocation, malformed bytes, inline hooks, and import-table hooks.
+
+Vendored dependencies live under `third_party/`:
+
+- Capstone headers and static libraries.
+- `plthook` source for ELF/PE import-table enumeration.
+- `ntdll.h` declarations for Windows native APIs.
+
+Do not edit vendored dependency internals during routine FLH refactors.
+
+## Safety Notes
+
+BeanieTheCat patches executable process memory. Run tests only in disposable local processes that you control. Do not change trampoline byte layout, hook-entry layout, or platform memory-protection behavior without passing the characterization tests.
+
+More details live in `DEVELOPMENT.md` and `ARCHITECTURE.md`.
