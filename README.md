@@ -85,7 +85,11 @@ make win32_test
 make win64_test
 ```
 
-The Windows binaries are cross-compiled; run them only in an appropriate Windows environment. On this machine, Linux x86/x64 tests and Windows x86 compilation have been verified through WSL2. Windows x64 compilation depends on an available `x86_64-w64-mingw32-gcc` toolchain.
+The Windows binaries are cross-compiled; run them only on Windows. Windows builds
+need the MinGW cross toolchains (`i686-w64-mingw32-gcc`, `x86_64-w64-mingw32-gcc`)
+on `PATH`. The Linux x86/x64 builds and tests and the Windows x86 cross-compile are
+the paths that have been exercised; the Windows x64 path depends on a working
+`x86_64-w64-mingw32-gcc`.
 
 ## Dependency Decisions
 
@@ -103,4 +107,4 @@ Do not edit vendored dependency internals during routine FLH refactors.
 
 BeanieTheCat patches executable process memory. Run tests only in disposable local processes that you control. Do not change trampoline byte layout, hook-entry layout, or platform memory-protection behavior without passing the characterization tests.
 
-More details live in `DEVELOPMENT.md` and `ARCHITECTURE.md`.
+Design internals and load-bearing invariants live in `ARCHITECTURE.md`.

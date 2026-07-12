@@ -70,9 +70,8 @@ int flh_set_memory_permission(void* target_address, unsigned int data_amount, in
         
         *old_flags = ((int)mincore_vec & 0x1) ? PROT_EXEC : 0;
         *old_flags |= ((int)mincore_vec & 0x2) ? PROT_WRITE : 0;
-        *old_flags |= PROT_READ;        
+        *old_flags |= PROT_READ;
         #endif
-        //printf("[%s:%s] Old Protect Flags: %04X\n",__FILE__,__FUNCTION__,*old_flags);
     }
     
     // Update the protection flags for the memory region.
