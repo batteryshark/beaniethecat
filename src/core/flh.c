@@ -43,8 +43,6 @@ static int create_64bit_absjmp(void* destination_address, unsigned char* jump_da
     unsigned char jmp64_template[] = {0x49, 0xBB, 0, 0, 0, 0, 0, 0, 0, 0, 0x41, 0xFF, 0xE3};
     memcpy(&jmp64_template[2], &destaddr, sizeof(uint64_t));
     memcpy(jump_data, jmp64_template, sizeof(jmp64_template));
-    //printf("[%s:%s] %p \n",__FILE__,__FUNCTION__,destination_address);
-
     return sizeof(jmp64_template);
 }
 #define create_absjmp create_64bit_absjmp
@@ -149,16 +147,14 @@ PFLHEntry flh_get_pflh_entry(void* target_address,unsigned char is_iat_hook){
         }
     }
     if(!is_iat_hook){
-        //printf("[%s:%s] Not a FLH Hooked Function %p\n", __FILE__, __FUNCTION__, target_address);
         return NULL;
     }
-    // Added for IAT
+    // For import-table hooks the slot holds the entry pointer directly.
     if(flh_address == NULL){
         flh_address = *(void**)target_address;
     }
-    
+
     if (memcmp(FLH_MAGIC, flh_address, sizeof(FLH_MAGIC)) != 0) {
-        //printf("[%s:%s] Not a FLH Hooked Function %p\n", __FILE__, __FUNCTION__, target_address);
         return NULL;
     }
 
@@ -249,8 +245,8 @@ void* flh_import_table_hook_byname(const char* module_name, const char* library_
     return (void*)pflh->original_target_trampoline;
 }
 
-// For now, we'll just restore the original bytes to remove the hook.
-// TODO Later - Remove and Relink Parts of Hooks
+// Restores the original prologue bytes, which removes every hook on the target
+// at once. It does not unwind a single link from a chain of hooks.
 int flh_inline_unhook(void* target_address){
     PFLHEntry pflh = flh_get_pflh_entry(target_address,0); 
     // For now, we'll try both

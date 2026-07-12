@@ -32,7 +32,8 @@ int flh_sanitize_original_bytes(void* original_address,void* sanitized_code_addr
     unsigned int instruction_offset = 0;
     for(int i=0;i<instruction_count;i++){
 
-        // If this is an endbr32/endbr64 instruction (CET), we're going to just fill 4 bytes of the trampoline with NOP because fuck it.
+        // endbr32/endbr64 (CET) only matters as a landing pad at the real entry.
+        // Inside the copied trampoline it is unneeded, so replace it with NOPs.
         if(instructions[i].id == X86_INS_ENDBR32 || instructions[i].id == X86_INS_ENDBR64){
             memset((unsigned char*)sanitized_code_address+instruction_offset,0x90,instructions[i].size);
             instruction_offset += instructions[i].size;
