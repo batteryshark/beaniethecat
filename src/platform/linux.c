@@ -10,6 +10,38 @@
 #define PAGE_SIZE 0x1000
 #endif
 
+static int flh_get_memory_permission(void* target_address, int* flags) {
+    if(flags == NULL){ return 0; }
+
+    FILE* maps = fopen("/proc/self/maps", "r");
+    if(maps == NULL){ return 0; }
+
+    uintptr_t target = (uintptr_t)target_address;
+    char line[512];
+    while(fgets(line, sizeof(line), maps) != NULL){
+        unsigned long start = 0;
+        unsigned long end = 0;
+        char perms[5] = {0};
+
+        if(sscanf(line, "%lx-%lx %4s", &start, &end, perms) != 3){
+            continue;
+        }
+
+        if(target >= (uintptr_t)start && target < (uintptr_t)end){
+            int current_flags = 0;
+            if(perms[0] == 'r'){ current_flags |= PROT_READ; }
+            if(perms[1] == 'w'){ current_flags |= PROT_WRITE; }
+            if(perms[2] == 'x'){ current_flags |= PROT_EXEC; }
+            *flags = current_flags;
+            fclose(maps);
+            return 1;
+        }
+    }
+
+    fclose(maps);
+    return 0;
+}
+
 int flh_get_function_address(const char* library_name, const char* function_name, void** pfunction_address) {
     // If we didn't specify a place to store the function address, we can't do anything.
     if (pfunction_address == NULL) { return 0; }
@@ -55,23 +87,12 @@ int flh_set_memory_permission(void* target_address, unsigned int data_amount, in
     // Calculate the page-aligned starting address for the target memory region.
     void* page_aligned_address = (void*)((uintptr_t)target_address & ~(PAGE_SIZE - 1));
     
-
-    
     // Save the current protection flags if necessary.    
     if (old_flags != NULL) {
-        // mincore was introduced in glibc 2.19
-        #if defined(__GLIBC__) && ((__GLIBC__ > 2) || ((__GLIBC__ == 2) && (__GLIBC_MINOR__ >= 19)))
-        // Get the current protection flags for the memory region.
-        unsigned char mincore_vec = 0;
-        if (mincore(page_aligned_address, data_amount, &mincore_vec) == -1) {
+        if (!flh_get_memory_permission(page_aligned_address, old_flags)) {
             printf("[%s:%s] Failed to Get Existing Memory Permission\n",__FILE__,__FUNCTION__);
             return 0; // Failed to get protection flags.
-        }        
-        
-        *old_flags = ((int)mincore_vec & 0x1) ? PROT_EXEC : 0;
-        *old_flags |= ((int)mincore_vec & 0x2) ? PROT_WRITE : 0;
-        *old_flags |= PROT_READ;
-        #endif
+        }
     }
     
     // Update the protection flags for the memory region.
