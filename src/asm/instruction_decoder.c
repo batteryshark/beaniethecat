@@ -47,7 +47,9 @@ int flh_sanitize_original_bytes(void* original_address,void* sanitized_code_addr
         // have a MEM operand and are position-independent - they MUST be copied
         // verbatim. Relocating them (the previous bug) overwrites the absolute
         // pointer with a bogus rel32 and corrupts the trampoline.
-        unsigned char is_branch = cs_insn_group(cs_handle, &instructions[i], X86_GRP_JUMP) ||
+        unsigned char is_branch = instructions[i].id == X86_INS_CALL ||
+                                  instructions[i].id == X86_INS_JMP ||
+                                  cs_insn_group(cs_handle, &instructions[i], X86_GRP_JUMP) ||
                                   cs_insn_group(cs_handle, &instructions[i], X86_GRP_CALL);
         unsigned char rel_target = instructions[i].detail && instructions[i].detail->x86.op_count > 0 &&
                                    instructions[i].detail->x86.operands[0].type == X86_OP_IMM;
@@ -59,7 +61,10 @@ int flh_sanitize_original_bytes(void* original_address,void* sanitized_code_addr
             // so once the trampoline sits far away it can no longer be expressed
             // as rel8 in place. Rather than corrupt it, bail (caller can fall back
             // to another hook method for that rare prologue).
-            unsigned int disp_size = (instructions[i].size >= 5) ? 4u : 1u;
+            unsigned int disp_size = instructions[i].detail->x86.encoding.imm_size;
+            if (disp_size == 0u) {
+                disp_size = (instructions[i].size >= 5) ? 4u : 1u;
+            }
             if (disp_size != 4u) {
                 printf("[%s:%s] rel8 branch in prologue at %p+%u; cannot build trampoline.\n",
                        __FILE__,__FUNCTION__,original_address,instruction_offset);

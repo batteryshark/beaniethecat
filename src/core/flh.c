@@ -119,6 +119,16 @@ static int restore_iat_hook(PFLHEntry entry) {
     return flh_patch_memory(original_target, &real_function_address, sizeof(real_function_address));
 }
 
+static PFLHEntry flh_entry_from_address(void* flh_address) {
+    if(flh_address == NULL){
+        return NULL;
+    }
+    if (memcmp(FLH_MAGIC, flh_address, sizeof(FLH_MAGIC)) != 0) {
+        return NULL;
+    }
+    return (PFLHEntry)flh_address;
+}
+
 
 // Reads the target function prologue, determines if this is a hooked function.
 // Returns the address pointed to by the hook or NULL if not hooked.
@@ -127,38 +137,39 @@ PFLHEntry flh_get_pflh_entry(void* target_address,unsigned char is_iat_hook){
     unsigned char test_data[32];
     memcpy(test_data, target_address, sizeof(test_data));
     // Test if the target is already an entry:
-    if(memcmp(test_data,FLH_MAGIC,sizeof(FLH_MAGIC)) == 0){
-        return target_address;
+    PFLHEntry direct_entry = flh_entry_from_address(target_address);
+    if(direct_entry != NULL){
+        return direct_entry;
     }
-    void* flh_address = NULL;
 
+    if(is_iat_hook){
+        return flh_entry_from_address(*(void**)target_address);
+    }
+
+    void* flh_address = NULL;
 
     switch (test_data[0]) {
         case 0xE9: {
             int32_t relative_value;
             memcpy(&relative_value, test_data + 1, sizeof(relative_value));
             flh_address = (void*)((uintptr_t)target_address + relative_value + 5);
-            return (PFLHEntry)flh_address;
+            break;
         }
+#ifdef __x86_64__
         case 0x49: {
+            if(test_data[1] != 0xBB || test_data[10] != 0x41 || test_data[11] != 0xFF || test_data[12] != 0xE3){
+                return NULL;
+            }
             uint64_t absolute_value = *(uint64_t*)(test_data + 2);
             flh_address = CAST_UINT64_TO_POINTER(absolute_value);
-            return (PFLHEntry)flh_address;
+            break;
         }
-    }
-    if(!is_iat_hook){
-        return NULL;
-    }
-    // For import-table hooks the slot holds the entry pointer directly.
-    if(flh_address == NULL){
-        flh_address = *(void**)target_address;
+#endif
+        default:
+            return NULL;
     }
 
-    if (memcmp(FLH_MAGIC, flh_address, sizeof(FLH_MAGIC)) != 0) {
-        return NULL;
-    }
-
-    return (PFLHEntry)flh_address;
+    return flh_entry_from_address(flh_address);
 }
 
 
