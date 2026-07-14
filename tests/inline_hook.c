@@ -1,9 +1,11 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 
 #include <flh/flh.h>
+#include "flh_internal.h"
 
 #ifdef __linux__
 #define TEST_CALLCONV  
@@ -35,8 +37,28 @@ int TEST_CALLCONV hook_system_2(const char* command) {
     return real_system_2(command);
 }
 
+static void assert_non_flh_jump_is_not_existing_hook(void) {
+    unsigned char jump_stub[32] = {0};
+    unsigned char ordinary_target[32] = {0};
+    intptr_t relative_offset = (intptr_t)(ordinary_target - (jump_stub + 5));
+    assert(relative_offset >= INT32_MIN && relative_offset <= INT32_MAX);
+
+    jump_stub[0] = 0xE9;
+    int32_t relative_offset32 = (int32_t)relative_offset;
+    memcpy(jump_stub + 1, &relative_offset32, sizeof(relative_offset32));
+    assert(flh_get_pflh_entry(jump_stub, 0) == NULL);
+
+    unsigned char rex_prefixed_non_hook[32] = {0x49, 0x89, 0xDB};
+    assert(flh_get_pflh_entry(rex_prefixed_non_hook, 0) == NULL);
+
+    void* ordinary_iat_slot = ordinary_target;
+    assert(flh_get_pflh_entry(&ordinary_iat_slot, 1) == NULL);
+}
+
 
 int main(){
+    assert_non_flh_jump_is_not_existing_hook();
+
     real_system_1 = flh_inline_hook_byname(target_library,"system",(void*)hook_system_1);
     assert(real_system_1 != NULL);
 
