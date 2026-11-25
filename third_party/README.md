@@ -11,6 +11,9 @@ Tracked material:
 - `capstone/include/capstone/*`
 - `capstone/lib/*/libcapstone.a`
 - `capstone/config.mk`
+- `capstone/LICENSE.TXT` and `capstone/LICENSE_LLVM.TXT`, the licence files from Capstone 5.0, the version the headers declare
+
+Capstone is BSD-3-Clause. Its licence text must ship with the static libraries.
 
 Keep Capstone as the default backend until a lighter decoder passes equivalent characterization tests.
 

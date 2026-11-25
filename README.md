@@ -108,3 +108,7 @@ Do not edit vendored dependency internals during routine FLH refactors.
 BeanieTheCat patches executable process memory. Run tests only in disposable local processes that you control. Do not change trampoline byte layout, hook-entry layout, or platform memory-protection behavior without passing the characterization tests.
 
 Design internals and load-bearing invariants live in `ARCHITECTURE.md`.
+
+## License
+
+MIT. See [LICENSE](LICENSE). Vendored code under `third_party/` keeps its own licence: Capstone is BSD-3-Clause (`third_party/capstone/LICENSE.TXT`, with its LLVM notice in `LICENSE_LLVM.TXT`), `plthook` is BSD-2-Clause (notice in its source headers), and `ntdll.h` keeps its original copyright header.
